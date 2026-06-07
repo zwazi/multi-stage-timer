@@ -41,7 +41,7 @@
 
     .timer-row {
       display: grid;
-      grid-template-columns: 1fr 120px;
+      grid-template-columns: 1fr 120px auto;
       gap: 10px;
       align-items: end;
     }
@@ -93,6 +93,10 @@
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
+    }
+
+    .test-tts {
+      white-space: nowrap;
     }
 
     button {
@@ -166,6 +170,7 @@
           Seconds
           <input id="timer1" type="number" min="1" value="4" />
         </label>
+        <button type="button" class="secondary test-tts" data-timer-index="0">Test TTS</button>
       </div>
 
       <div class="timer-row">
@@ -177,6 +182,7 @@
           Seconds
           <input id="timer2" type="number" min="1" value="7" />
         </label>
+        <button type="button" class="secondary test-tts" data-timer-index="1">Test TTS</button>
       </div>
 
       <div class="timer-row">
@@ -188,6 +194,7 @@
           Seconds
           <input id="timer3" type="number" min="1" value="8" />
         </label>
+        <button type="button" class="secondary test-tts" data-timer-index="2">Test TTS</button>
       </div>
 
       <label>
@@ -255,6 +262,7 @@
     const startBtn = document.getElementById("startBtn");
     const pauseBtn = document.getElementById("pauseBtn");
     const resetBtn = document.getElementById("resetBtn");
+    const testTtsButtons = [...document.querySelectorAll(".test-tts")];
 
     let names = ["In", "Hold", "Out"];
     let timers = [4, 7, 8];
@@ -291,42 +299,15 @@
         const finish = () => {
           if (done) return;
           done = true;
+          window.speechSynthesis.removeEventListener("voiceschanged", finish);
           resolve();
         };
 
-        window.speechSynthesis.onvoiceschanged = finish;
+        window.speechSynthesis.addEventListener("voiceschanged", finish);
         setTimeout(finish, 1000);
       });
 
       return voicesReadyPromise;
-    }
-
-    function warmUpSpeech() {
-      if (!canSpeak()) return Promise.resolve();
-
-      return waitForVoices().then(() => new Promise(resolve => {
-        window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(" ");
-        utterance.lang = navigator.language || "en-US";
-        utterance.volume = 0;
-        utterance.rate = 1.2;
-        utterance.pitch = 0.9;
-
-        let done = false;
-        const finish = () => {
-          if (done) return;
-          done = true;
-          window.speechSynthesis.cancel();
-          resolve();
-        };
-
-        utterance.onend = finish;
-        utterance.onerror = finish;
-
-        window.speechSynthesis.speak(utterance);
-        setTimeout(finish, 350);
-      }));
     }
 
     function speakNow(text, options = {}) {
@@ -381,6 +362,27 @@
       if (canSpeak()) {
         window.speechSynthesis.cancel();
       }
+    }
+
+    function startIntervalLoop() {
+      intervalId = setInterval(() => {
+        totalRemaining--;
+
+        if (totalRemaining <= 0) {
+          stopTimer(true);
+          updateDisplay();
+          return;
+        }
+
+        if (stageElapsed >= timers[currentStage]) {
+          advanceToNextStage();
+          return;
+        }
+
+        stageElapsed++;
+        updateDisplay();
+        speakElapsedSecond();
+      }, 1000);
     }
 
     function announceStage() {
@@ -440,16 +442,29 @@
     }
 
     function lockInputs(locked) {
-      [...nameInputs, ...timerInputs, totalMinutesInput, initialCountdownToggle].forEach(input => input.disabled = locked);
+      [...nameInputs, ...timerInputs, totalMinutesInput, initialCountdownToggle, ...testTtsButtons].forEach(input => input.disabled = locked);
     }
 
-    function startStage() {
+    function startStage(options = {}) {
       stageElapsed = 1;
       initialCountdownActive = false;
       updateDisplay();
 
+      if (options.waitForAnnouncementStart && speechToggle.checked) {
+        speakAndRunOnStart(names[currentStage], () => {
+          if (!running) return;
+          options.onAnnouncementStart?.();
+        }, {
+          rate: 1,
+          pitch: 0.9,
+          startFallbackMs: 900
+        });
+        return;
+      }
+
       // This replaces saying "1". Pattern: "In, 2, 3, 4".
       announceStage();
+      options.onAnnouncementStart?.();
     }
 
     function advanceToNextStage() {
@@ -457,27 +472,17 @@
       startStage();
     }
 
-    function beginMainTimer() {
+    function beginMainTimer(waitForFirstSpeechStart = false) {
+      if (waitForFirstSpeechStart) {
+        startStage({
+          waitForAnnouncementStart: true,
+          onAnnouncementStart: startIntervalLoop
+        });
+        return;
+      }
+
       startStage();
-
-      intervalId = setInterval(() => {
-        totalRemaining--;
-
-        if (totalRemaining <= 0) {
-          stopTimer(true);
-          updateDisplay();
-          return;
-        }
-
-        if (stageElapsed >= timers[currentStage]) {
-          advanceToNextStage();
-          return;
-        }
-
-        stageElapsed++;
-        updateDisplay();
-        speakElapsedSecond();
-      }, 1000);
+      startIntervalLoop();
     }
 
     function runInitialCountdownInterval() {
@@ -516,12 +521,15 @@
       });
     }
 
-    async function startTimer() {
+    function startTimer() {
       if (running) return;
 
       // Touch speechSynthesis synchronously while the user gesture is still active.
       // Firefox on Android requires the API to be accessed within the gesture window.
-      if (canSpeak()) window.speechSynthesis.cancel();
+      if (canSpeak()) {
+        waitForVoices();
+        window.speechSynthesis.cancel();
+      }
 
       if (totalRemaining <= 0 || stageLabel.textContent === "Ready") {
         readSettings();
@@ -536,15 +544,22 @@
       stageLabel.textContent = "Preparing voice";
       stageTime.textContent = "00:00";
 
-      await warmUpSpeech();
-
-      if (!running) return;
-
       if (initialCountdownToggle.checked && stageElapsed === 1 && currentStage === 0 && totalRemaining > 0) {
         beginInitialCountdown();
       } else {
-        beginMainTimer();
+        beginMainTimer(true);
       }
+    }
+
+    function speakTimerNameSample(index) {
+      const value = nameInputs[index]?.value.trim();
+      const text = value || `Timer ${index + 1}`;
+
+      speakNow(text, {
+        allowWhenStopped: true,
+        rate: 1,
+        pitch: 0.9
+      });
     }
 
     function pauseTimer() {
@@ -588,6 +603,11 @@
     startBtn.addEventListener("click", startTimer);
     pauseBtn.addEventListener("click", pauseTimer);
     resetBtn.addEventListener("click", resetTimer);
+    testTtsButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        speakTimerNameSample(Number(button.dataset.timerIndex));
+      });
+    });
 
     [...nameInputs, ...timerInputs, totalMinutesInput].forEach(input => {
       input.addEventListener("input", () => {
