@@ -650,36 +650,36 @@
         return;
       }
 
+      // Touch speechSynthesis synchronously while the user gesture is still active.
+      // Firefox on Android drops speech requests made outside the gesture window.
+      // Previous PRs fixed this for startTimer but not for Test TTS buttons.
+      window.speechSynthesis.cancel();
+
       const value = nameInputs[index]?.value.trim();
       const text = value || `Timer ${index + 1}`;
 
-      // Ensure voices are loaded before trying to speak
-      waitForVoices().then(() => {
-        window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(String(text));
+      utterance.lang = navigator.language || "en-US";
+      utterance.rate = 1;
+      utterance.pitch = 0.9;
+      utterance.volume = 1;
 
-        const utterance = new SpeechSynthesisUtterance(String(text));
-        utterance.lang = navigator.language || "en-US";
-        utterance.rate = 1;
-        utterance.pitch = 0.9;
-        utterance.volume = 1;
+      utterance.onstart = () => flashButton(button, true);
+      utterance.onend = () => unflashButton(button);
+      utterance.onerror = () => {
+        unflashButton(button);
+        flashButton(button, false);
+      };
 
-        utterance.onstart = () => flashButton(button, true);
-        utterance.onend = () => unflashButton(button);
-        utterance.onerror = () => {
-          unflashButton(button);
-          flashButton(button, false);
-        };
+      window.speechSynthesis.speak(utterance);
 
-        window.speechSynthesis.speak(utterance);
-
-        // Fallback: show feedback even if events don't fire
-        setTimeout(() => {
-          if (!button.classList.contains("speaking")) {
-            flashButton(button, true);
-          }
-        }, 300);
-        setTimeout(() => unflashButton(button), 2000);
-      });
+      // Fallback: show feedback even if events don't fire
+      setTimeout(() => {
+        if (!button.classList.contains("speaking")) {
+          flashButton(button, true);
+        }
+      }, 300);
+      setTimeout(() => unflashButton(button), 2000);
     }
 
     function flashButton(button, success) {
