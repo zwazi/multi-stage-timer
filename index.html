@@ -205,6 +205,22 @@
       cursor: pointer;
     }
 
+    .audio-mode-group {
+      display: grid;
+      gap: 8px;
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px solid #e8e6f0;
+    }
+
+    .audio-mode-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #666;
+    }
+
     .hint {
       margin-top: 16px;
       color: #888;
@@ -308,6 +324,18 @@
         <input id="countToggle" type="checkbox" checked />
         Speak elapsed seconds, starting at 2
       </label>
+
+      <div class="audio-mode-group">
+        <span class="audio-mode-label">Audio output</span>
+        <label class="checkbox-label">
+          <input id="audioModeTts" type="radio" name="audioMode" value="tts" checked />
+          Use TTS
+        </label>
+        <label class="checkbox-label">
+          <input id="audioModeBeeps" type="radio" name="audioMode" value="beeps" />
+          Use beeps backup (high/medium/low)
+        </label>
+      </div>
     </section>
 
     <p class="hint">
@@ -332,6 +360,8 @@
     const initialCountdownToggle = document.getElementById("initialCountdownToggle");
     const speechToggle = document.getElementById("speechToggle");
     const countToggle = document.getElementById("countToggle");
+    const audioModeTts = document.getElementById("audioModeTts");
+    const audioModeBeeps = document.getElementById("audioModeBeeps");
 
     const stageLabel = document.getElementById("stageLabel");
     const stageTime = document.getElementById("stageTime");
@@ -352,6 +382,12 @@
     let initialCountdownActive = false;
     let initialCountdownValue = 3;
     let voicesReadyPromise = null;
+    let audioContext = null;
+    let ttsPrimed = false;
+
+    const BEEP_HIGH_HZ = 1100;
+    const BEEP_MEDIUM_HZ = 800;
+    const BEEP_LOW_HZ = 520;
 
     function formatTime(seconds) {
       const mins = Math.floor(seconds / 60);
@@ -361,6 +397,64 @@
 
     function canSpeak() {
       return "speechSynthesis" in window;
+    }
+
+    function isBeepMode() {
+      return audioModeBeeps.checked;
+    }
+
+    function getPreferredVoice() {
+      if (!canSpeak()) return null;
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices.length) return null;
+
+      const targetLang = (navigator.language || "en-US").toLowerCase();
+      return voices.find(voice => (voice.lang || "").toLowerCase() === targetLang)
+        || voices.find(voice => targetLang.startsWith(((voice.lang || "").toLowerCase().split("-")[0] || "")))
+        || voices[0];
+    }
+
+    function getAudioContext() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      if (!audioContext) audioContext = new AudioContextClass();
+      return audioContext;
+    }
+
+    function unlockAudioContext() {
+      const context = getAudioContext();
+      if (!context || context.state !== "suspended") return;
+      context.resume().catch(() => {});
+    }
+
+    function playBeepTone(frequency, durationMs = 120) {
+      const context = getAudioContext();
+      if (!context) return false;
+      unlockAudioContext();
+
+      const startTime = context.currentTime;
+      const endTime = startTime + (durationMs / 1000);
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, startTime);
+      gainNode.gain.setValueAtTime(0.0001, startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.18, startTime + 0.015);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, endTime);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      oscillator.start(startTime);
+      oscillator.stop(endTime);
+      return true;
+    }
+
+    function playStageBeep(second, stageDuration) {
+      if (!isBeepMode()) return false;
+      if (second <= 1) return playBeepTone(BEEP_HIGH_HZ);
+      if (second >= stageDuration) return playBeepTone(BEEP_LOW_HZ);
+      return playBeepTone(BEEP_MEDIUM_HZ);
     }
 
     function waitForVoices() {
@@ -404,12 +498,15 @@
 
     function speakNow(text, options = {}) {
       if (!canSpeak()) return false;
+      if (isBeepMode()) return false;
       if (!running && !options.allowWhenStopped) return false;
 
+      window.speechSynthesis.resume();
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(String(text));
       utterance.lang = navigator.language || "en-US";
+      utterance.voice = getPreferredVoice();
       utterance.rate = options.rate ?? 1.25;
       utterance.pitch = options.pitch ?? 0.9;
       utterance.volume = options.volume ?? 1;
@@ -424,12 +521,19 @@
         return;
       }
 
+      if (isBeepMode()) {
+        onStart();
+        return;
+      }
+
       if (!running && !options.allowWhenStopped) return;
 
+      window.speechSynthesis.resume();
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(String(text));
       utterance.lang = navigator.language || "en-US";
+      utterance.voice = getPreferredVoice();
       utterance.rate = options.rate ?? 1.25;
       utterance.pitch = options.pitch ?? 0.9;
       utterance.volume = options.volume ?? 1;
@@ -478,6 +582,11 @@
     }
 
     function announceStage() {
+      if (isBeepMode()) {
+        playStageBeep(stageElapsed, timers[currentStage]);
+        return;
+      }
+
       if (speechToggle.checked) {
         speakNow(names[currentStage], {
           rate: 1,
@@ -487,6 +596,11 @@
     }
 
     function speakElapsedSecond() {
+      if (isBeepMode()) {
+        playStageBeep(stageElapsed, timers[currentStage]);
+        return;
+      }
+
       if (!countToggle.checked) return;
 
       speakNow(stageElapsed, {
@@ -534,7 +648,7 @@
     }
 
     function lockInputs(locked) {
-      [...nameInputs, ...timerInputs, totalMinutesInput, initialCountdownToggle, ...testTtsButtons].forEach(input => input.disabled = locked);
+      [...nameInputs, ...timerInputs, totalMinutesInput, initialCountdownToggle, audioModeTts, audioModeBeeps, ...testTtsButtons].forEach(input => input.disabled = locked);
     }
 
     function startStage(options = {}) {
@@ -542,7 +656,7 @@
       initialCountdownActive = false;
       updateDisplay();
 
-      if (options.waitForAnnouncementStart && speechToggle.checked) {
+      if (options.waitForAnnouncementStart && speechToggle.checked && !isBeepMode()) {
         speakAndRunOnStart(names[currentStage], () => {
           if (!running) return;
           options.onAnnouncementStart?.();
@@ -616,11 +730,25 @@
     function startTimer() {
       if (running) return;
 
+      unlockAudioContext();
+
       // Touch speechSynthesis synchronously while the user gesture is still active.
       // Firefox on Android requires the API to be accessed within the gesture window.
-      if (canSpeak()) {
+      if (canSpeak() && !isBeepMode()) {
         waitForVoices();
+        window.speechSynthesis.resume();
         window.speechSynthesis.cancel();
+        if (!ttsPrimed) {
+          const primer = new SpeechSynthesisUtterance(".");
+          primer.lang = navigator.language || "en-US";
+          primer.voice = getPreferredVoice();
+          primer.volume = 0;
+          primer.rate = 1;
+          primer.pitch = 1;
+          window.speechSynthesis.speak(primer);
+          window.speechSynthesis.cancel();
+          ttsPrimed = true;
+        }
       }
 
       if (totalRemaining <= 0 || stageLabel.textContent === "Ready") {
@@ -645,6 +773,15 @@
     }
 
     function speakTimerNameSample(index, button) {
+      if (isBeepMode()) {
+        const first = playBeepTone(BEEP_HIGH_HZ);
+        setTimeout(() => playBeepTone(BEEP_MEDIUM_HZ), 180);
+        setTimeout(() => playBeepTone(BEEP_LOW_HZ), 360);
+        flashButton(button, first);
+        if (first) setTimeout(() => unflashButton(button), 700);
+        return;
+      }
+
       if (!canSpeak()) {
         flashButton(button, false);
         return;
@@ -653,6 +790,8 @@
       // Touch speechSynthesis synchronously while the user gesture is still active.
       // Firefox on Android drops speech requests made outside the gesture window.
       // Previous PRs fixed this for startTimer but not for Test TTS buttons.
+      waitForVoices();
+      window.speechSynthesis.resume();
       window.speechSynthesis.cancel();
 
       const value = nameInputs[index]?.value.trim();
@@ -660,6 +799,7 @@
 
       const utterance = new SpeechSynthesisUtterance(String(text));
       utterance.lang = navigator.language || "en-US";
+      utterance.voice = getPreferredVoice();
       utterance.rate = 1;
       utterance.pitch = 0.9;
       utterance.volume = 1;
@@ -685,17 +825,26 @@
     function flashButton(button, success) {
       button.classList.add("speaking");
       if (!success) {
-        button.textContent = "No TTS";
+        button.textContent = isBeepMode() ? "No Audio" : "No TTS";
         setTimeout(() => {
           button.classList.remove("speaking");
-          button.textContent = "Test TTS";
+          button.textContent = isBeepMode() ? "Test Beeps" : "Test TTS";
         }, 1500);
       }
     }
 
     function unflashButton(button) {
       button.classList.remove("speaking");
-      button.textContent = "Test TTS";
+      button.textContent = isBeepMode() ? "Test Beeps" : "Test TTS";
+    }
+
+    function updateAudioModeUi() {
+      const label = isBeepMode() ? "Test Beeps" : "Test TTS";
+      testTtsButtons.forEach(button => {
+        if (!button.classList.contains("speaking")) {
+          button.textContent = label;
+        }
+      });
     }
 
     function pauseTimer() {
@@ -747,6 +896,14 @@
       });
     });
 
+    [audioModeTts, audioModeBeeps].forEach(input => {
+      input.addEventListener("change", () => {
+        if (!running) {
+          updateAudioModeUi();
+        }
+      });
+    });
+
     [...nameInputs, ...timerInputs, totalMinutesInput].forEach(input => {
       input.addEventListener("input", () => {
         if (!running) {
@@ -759,6 +916,7 @@
       waitForVoices();
     }
 
+    updateAudioModeUi();
     resetTimer();
   </script>
 </body>
