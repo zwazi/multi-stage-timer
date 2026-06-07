@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3-Stage Loop Timer</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #111;
+      background: #f5f5f5;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .app {
+      width: min(480px, 100%);
+      background: white;
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: 1.5rem;
+      text-align: center;
+    }
+
+    .inputs {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .timer-row {
+      display: grid;
+      grid-template-columns: 1fr 120px;
+      gap: 10px;
+      align-items: end;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      font-weight: 650;
+      font-size: 0.95rem;
+    }
+
+    input {
+      font: inherit;
+      padding: 10px 12px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .status {
+      border-radius: 16px;
+      background: #f0f0f0;
+      padding: 20px;
+      text-align: center;
+      margin-bottom: 18px;
+    }
+
+    .stage {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .time {
+      font-variant-numeric: tabular-nums;
+      font-size: 3rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .total {
+      margin-top: 10px;
+      font-size: 0.95rem;
+      color: #555;
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 700;
+      padding: 11px;
+      border: 0;
+      border-radius: 12px;
+      cursor: pointer;
+      background: #111;
+      color: white;
+    }
+
+    button.secondary {
+      background: #ddd;
+      color: #111;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .options {
+      display: grid;
+      gap: 8px;
+      margin: 16px 0 6px;
+      font-size: 0.92rem;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .checkbox-label input {
+      width: auto;
+    }
+
+    .hint {
+      margin-top: 14px;
+      color: #666;
+      font-size: 0.85rem;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 430px) {
+      .timer-row {
+        grid-template-columns: 1fr;
+      }
+
+      .buttons {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>3-Stage Loop Timer</h1>
+
+    <section class="inputs">
+      <div class="timer-row">
+        <label>
+          Timer 1 name
+          <input id="name1" type="text" value="In" />
+        </label>
+        <label>
+          Seconds
+          <input id="timer1" type="number" min="1" value="4" />
+        </label>
+      </div>
+
+      <div class="timer-row">
+        <label>
+          Timer 2 name
+          <input id="name2" type="text" value="Hold" />
+        </label>
+        <label>
+          Seconds
+          <input id="timer2" type="number" min="1" value="7" />
+        </label>
+      </div>
+
+      <div class="timer-row">
+        <label>
+          Timer 3 name
+          <input id="name3" type="text" value="Out" />
+        </label>
+        <label>
+          Seconds
+          <input id="timer3" type="number" min="1" value="8" />
+        </label>
+      </div>
+
+      <label>
+        Total run time minutes
+        <input id="totalMinutes" type="number" min="1" value="4" />
+      </label>
+    </section>
+
+    <section class="status">
+      <div class="stage" id="stageLabel">Ready</div>
+      <div class="time" id="stageTime">00:00</div>
+      <div class="total" id="totalTime">Total remaining: 00:00</div>
+    </section>
+
+    <section class="buttons">
+      <button id="startBtn">Start</button>
+      <button id="pauseBtn" class="secondary" disabled>Pause</button>
+      <button id="resetBtn" class="secondary">Reset</button>
+    </section>
+
+    <section class="options">
+      <label class="checkbox-label">
+        <input id="initialCountdownToggle" type="checkbox" checked />
+        Initial countdown: 3, 2, 1
+      </label>
+
+      <label class="checkbox-label">
+        <input id="speechToggle" type="checkbox" checked />
+        Speak timer names
+      </label>
+
+      <label class="checkbox-label">
+        <input id="countToggle" type="checkbox" checked />
+        Speak elapsed seconds, starting at 2
+      </label>
+    </section>
+
+    <p class="hint">
+      The initial countdown starts timing only when the first spoken “3” actually begins.
+    </p>
+  </main>
+
+  <script>
+    const nameInputs = [
+      document.getElementById("name1"),
+      document.getElementById("name2"),
+      document.getElementById("name3")
+    ];
+
+    const timerInputs = [
+      document.getElementById("timer1"),
+      document.getElementById("timer2"),
+      document.getElementById("timer3")
+    ];
+
+    const totalMinutesInput = document.getElementById("totalMinutes");
+    const initialCountdownToggle = document.getElementById("initialCountdownToggle");
+    const speechToggle = document.getElementById("speechToggle");
+    const countToggle = document.getElementById("countToggle");
+
+    const stageLabel = document.getElementById("stageLabel");
+    const stageTime = document.getElementById("stageTime");
+    const totalTime = document.getElementById("totalTime");
+
+    const startBtn = document.getElementById("startBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let names = ["In", "Hold", "Out"];
+    let timers = [4, 7, 8];
+    let currentStage = 0;
+    let stageElapsed = 1;
+    let totalRemaining = 240;
+    let intervalId = null;
+    let running = false;
+    let initialCountdownActive = false;
+    let initialCountdownValue = 3;
+    let voicesReadyPromise = null;
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    function canSpeak() {
+      return "speechSynthesis" in window;
+    }
+
+    function waitForVoices() {
+      if (!canSpeak()) return Promise.resolve();
+      if (voicesReadyPromise) return voicesReadyPromise;
+
+      voicesReadyPromise = new Promise(resolve => {
+        if (window.speechSynthesis.getVoices().length > 0) {
+          resolve();
+          return;
+        }
+
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve();
+        };
+
+        window.speechSynthesis.onvoiceschanged = finish;
+        setTimeout(finish, 1000);
+      });
+
+      return voicesReadyPromise;
+    }
+
+    function warmUpSpeech() {
+      if (!canSpeak()) return Promise.resolve();
+
+      return waitForVoices().then(() => new Promise(resolve => {
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(" ");
+        utterance.volume = 0;
+        utterance.rate = 1.2;
+        utterance.pitch = 0.9;
+
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          window.speechSynthesis.cancel();
+          resolve();
+        };
+
+        utterance.onend = finish;
+        utterance.onerror = finish;
+
+        window.speechSynthesis.speak(utterance);
+        setTimeout(finish, 350);
+      }));
+    }
+
+    function speakNow(text, options = {}) {
+      if (!canSpeak()) return false;
+      if (!running && !options.allowWhenStopped) return false;
+
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(String(text));
+      utterance.rate = options.rate ?? 1.25;
+      utterance.pitch = options.pitch ?? 0.9;
+      utterance.volume = options.volume ?? 1;
+
+      window.speechSynthesis.speak(utterance);
+      return true;
+    }
+
+    function speakAndRunOnStart(text, onStart, options = {}) {
+      if (!canSpeak()) {
+        onStart();
+        return;
+      }
+
+      if (!running && !options.allowWhenStopped) return;
+
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(String(text));
+      utterance.rate = options.rate ?? 1.25;
+      utterance.pitch = options.pitch ?? 0.9;
+      utterance.volume = options.volume ?? 1;
+
+      let started = false;
+      const start = () => {
+        if (started) return;
+        started = true;
+        onStart();
+      };
+
+      utterance.onstart = start;
+      utterance.onerror = start;
+
+      window.speechSynthesis.speak(utterance);
+
+      // Some browser engines fail to fire onstart. Fallback avoids dead start.
+      setTimeout(start, options.startFallbackMs ?? 450);
+    }
+
+    function clearSpeech() {
+      if (canSpeak()) {
+        window.speechSynthesis.cancel();
+      }
+    }
+
+    function announceStage() {
+      if (speechToggle.checked) {
+        speakNow(names[currentStage], {
+          rate: 1,
+          pitch: 0.9
+        });
+      }
+    }
+
+    function speakElapsedSecond() {
+      if (!countToggle.checked) return;
+
+      speakNow(stageElapsed, {
+        rate: 1.35,
+        pitch: 0.85
+      });
+    }
+
+    function speakInitialCountdownNumber() {
+      speakNow(initialCountdownValue, {
+        rate: 1.25,
+        pitch: 0.9
+      });
+    }
+
+    function readSettings() {
+      names = nameInputs.map((input, index) => {
+        const trimmed = input.value.trim();
+        return trimmed || `Timer ${index + 1}`;
+      });
+
+      timers = timerInputs.map(input => Math.max(1, Number(input.value) || 1));
+      totalRemaining = Math.max(1, Number(totalMinutesInput.value) || 1) * 60;
+      currentStage = 0;
+      stageElapsed = 1;
+      initialCountdownActive = false;
+      initialCountdownValue = 3;
+    }
+
+    function updateDisplay() {
+      if (initialCountdownActive) {
+        stageLabel.textContent = "Starting";
+        stageTime.textContent = formatTime(initialCountdownValue);
+      } else {
+        stageLabel.textContent = totalRemaining <= 0
+          ? "Finished"
+          : names[currentStage];
+
+        stageTime.textContent = totalRemaining <= 0
+          ? "00:00"
+          : formatTime(stageElapsed);
+      }
+
+      totalTime.textContent = `Total remaining: ${formatTime(Math.max(0, totalRemaining))}`;
+    }
+
+    function lockInputs(locked) {
+      [...nameInputs, ...timerInputs, totalMinutesInput, initialCountdownToggle].forEach(input => input.disabled = locked);
+    }
+
+    function startStage() {
+      stageElapsed = 1;
+      initialCountdownActive = false;
+      updateDisplay();
+
+      // This replaces saying "1". Pattern: "In, 2, 3, 4".
+      announceStage();
+    }
+
+    function advanceToNextStage() {
+      currentStage = (currentStage + 1) % 3;
+      startStage();
+    }
+
+    function beginMainTimer() {
+      startStage();
+
+      intervalId = setInterval(() => {
+        totalRemaining--;
+
+        if (totalRemaining <= 0) {
+          stopTimer(true);
+          updateDisplay();
+          return;
+        }
+
+        if (stageElapsed >= timers[currentStage]) {
+          advanceToNextStage();
+          return;
+        }
+
+        stageElapsed++;
+        updateDisplay();
+        speakElapsedSecond();
+      }, 1000);
+    }
+
+    function runInitialCountdownInterval() {
+      intervalId = setInterval(() => {
+        initialCountdownValue--;
+
+        if (initialCountdownValue <= 0) {
+          clearInterval(intervalId);
+          intervalId = null;
+          beginMainTimer();
+          return;
+        }
+
+        updateDisplay();
+        speakInitialCountdownNumber();
+      }, 1000);
+    }
+
+    function beginInitialCountdown() {
+      initialCountdownActive = true;
+      initialCountdownValue = 3;
+
+      stageLabel.textContent = "Starting";
+      stageTime.textContent = "Waiting for voice";
+      totalTime.textContent = `Total remaining: ${formatTime(Math.max(0, totalRemaining))}`;
+
+      // Key change: do not display/start timing until the first TTS actually begins.
+      speakAndRunOnStart(initialCountdownValue, () => {
+        if (!running) return;
+        updateDisplay();
+        runInitialCountdownInterval();
+      }, {
+        rate: 1.25,
+        pitch: 0.9,
+        startFallbackMs: 450
+      });
+    }
+
+    async function startTimer() {
+      if (running) return;
+
+      if (totalRemaining <= 0 || stageLabel.textContent === "Ready") {
+        readSettings();
+      }
+
+      running = true;
+      lockInputs(true);
+      startBtn.disabled = true;
+      pauseBtn.disabled = false;
+      pauseBtn.textContent = "Pause";
+
+      stageLabel.textContent = "Preparing voice";
+      stageTime.textContent = "00:00";
+
+      await warmUpSpeech();
+
+      if (!running) return;
+
+      if (initialCountdownToggle.checked && stageElapsed === 1 && currentStage === 0 && totalRemaining > 0) {
+        beginInitialCountdown();
+      } else {
+        beginMainTimer();
+      }
+    }
+
+    function pauseTimer() {
+      if (!running) return;
+
+      clearInterval(intervalId);
+      intervalId = null;
+      running = false;
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      pauseBtn.textContent = "Paused";
+      clearSpeech();
+    }
+
+    function stopTimer(finished = false) {
+      clearInterval(intervalId);
+      intervalId = null;
+      running = false;
+      lockInputs(false);
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      initialCountdownActive = false;
+
+      if (finished) {
+        stageElapsed = 0;
+        totalRemaining = 0;
+      }
+
+      clearSpeech();
+    }
+
+    function resetTimer() {
+      stopTimer(false);
+      readSettings();
+      stageLabel.textContent = "Ready";
+      stageTime.textContent = formatTime(stageElapsed);
+      totalTime.textContent = `Total remaining: ${formatTime(totalRemaining)}`;
+      pauseBtn.textContent = "Pause";
+    }
+
+    startBtn.addEventListener("click", startTimer);
+    pauseBtn.addEventListener("click", pauseTimer);
+    resetBtn.addEventListener("click", resetTimer);
+
+    [...nameInputs, ...timerInputs, totalMinutesInput].forEach(input => {
+      input.addEventListener("input", () => {
+        if (!running) {
+          resetTimer();
+        }
+      });
+    });
+
+    if (canSpeak()) {
+      waitForVoices();
+    }
+
+    resetTimer();
+  </script>
+</body>
+</html>
