@@ -308,6 +308,7 @@
         window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(" ");
+        utterance.lang = navigator.language || "en-US";
         utterance.volume = 0;
         utterance.rate = 1.2;
         utterance.pitch = 0.9;
@@ -335,6 +336,7 @@
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(String(text));
+      utterance.lang = navigator.language || "en-US";
       utterance.rate = options.rate ?? 1.25;
       utterance.pitch = options.pitch ?? 0.9;
       utterance.volume = options.volume ?? 1;
@@ -354,6 +356,7 @@
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(String(text));
+      utterance.lang = navigator.language || "en-US";
       utterance.rate = options.rate ?? 1.25;
       utterance.pitch = options.pitch ?? 0.9;
       utterance.volume = options.volume ?? 1;
@@ -515,6 +518,10 @@
 
     async function startTimer() {
       if (running) return;
+
+      // Touch speechSynthesis synchronously while the user gesture is still active.
+      // Firefox on Android requires the API to be accessed within the gesture window.
+      if (canSpeak()) window.speechSynthesis.cancel();
 
       if (totalRemaining <= 0 || stageLabel.textContent === "Ready") {
         readSettings();
